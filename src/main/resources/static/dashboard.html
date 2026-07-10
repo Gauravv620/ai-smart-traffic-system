@@ -1,0 +1,1829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City Traffic Control Center</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet Map CSS/JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SockJS and STOMP -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #070b13;
+            --panel-bg: rgba(13, 20, 38, 0.7);
+            --panel-border: rgba(59, 130, 246, 0.15);
+            --primary-cyan: #06b6d4;
+            --primary-emerald: #10b981;
+            --primary-orange: #f59e0b;
+            --primary-rose: #ef4444;
+            --primary-blue: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #64748b;
+            --font-orbitron: 'Orbitron', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+            --font-inter: 'Inter', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-inter);
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(20, 30, 60, 0.4) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
+            min-height: 100vh;
+        }
+
+        /* Webkit Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(7, 11, 19, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(59, 130, 246, 0.25);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-cyan);
+        }
+
+        header {
+            background: rgba(13, 20, 38, 0.8);
+            border-bottom: 1px solid var(--panel-border);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            position: relative;
+        }
+
+        .header-title-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-pulse {
+            width: 14px;
+            height: 14px;
+            background: var(--primary-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--primary-cyan);
+            position: relative;
+        }
+
+        .logo-pulse::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: var(--primary-cyan);
+            animation: pulse-ring 2s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(2.5); opacity: 0; }
+        }
+
+        header h1 {
+            font-family: var(--font-orbitron);
+            font-weight: 700;
+            font-size: 1.3rem;
+            letter-spacing: 2px;
+            background: linear-gradient(135deg, #ffffff, var(--primary-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .badge-live {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: var(--primary-emerald);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: 1px;
+        }
+
+        .badge-live.connecting {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: var(--primary-orange);
+        }
+
+        .badge-live.disconnected {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--primary-rose);
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+            display: inline-block;
+        }
+
+        .pulsing-dot {
+            animation: blink-dot 1.5s infinite alternate;
+        }
+
+        @keyframes blink-dot {
+            0% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        #clock {
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+        }
+
+        /* Auth Portal Elements */
+        .auth-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-auth {
+            background: rgba(6, 182, 212, 0.1);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+            color: var(--primary-cyan);
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-family: var(--font-orbitron);
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .btn-auth:hover {
+            background: var(--primary-cyan);
+            color: #000;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+        }
+
+        .operator-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+        }
+
+        .operator-email {
+            color: var(--primary-emerald);
+            font-family: var(--font-mono);
+            font-weight: 600;
+        }
+
+        /* Portal Layout Grid */
+        .portal-grid {
+            display: grid;
+            grid-template-columns: 1fr 450px;
+            height: calc(100vh - 71px);
+            position: relative;
+        }
+
+        /* Left Side: Map & Console log */
+        .left-panel {
+            display: grid;
+            grid-template-rows: 1fr 200px;
+            border-right: 1px solid var(--panel-border);
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        .console-panel {
+            background: #060910;
+            border-top: 1px solid var(--panel-border);
+            padding: 15px 25px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .console-header h3 {
+            font-family: var(--font-orbitron);
+            font-size: 0.85rem;
+            color: var(--primary-cyan);
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        .console-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-console {
+            background: rgba(30, 41, 59, 0.4);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-family: var(--font-mono);
+            transition: all 0.2s ease;
+        }
+
+        .btn-console:hover {
+            border-color: var(--primary-cyan);
+            color: var(--text-main);
+        }
+
+        .console-feed {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.8);
+            overflow-y: auto;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 5px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .log-line {
+            line-height: 1.4;
+            animation: slide-in-log 0.2s ease-out;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
+            padding-bottom: 3px;
+        }
+
+        @keyframes slide-in-log {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .log-time {
+            color: var(--primary-blue);
+            margin-right: 10px;
+        }
+
+        .log-line-content {
+            white-space: pre-wrap;
+        }
+
+        .log-tag {
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            margin-right: 8px;
+            text-transform: uppercase;
+        }
+
+        .log-tag.alert { background: rgba(239, 68, 68, 0.2); color: var(--primary-rose); border: 1px solid rgba(239,68,68,0.4); }
+        .log-tag.info { background: rgba(59, 130, 246, 0.2); color: var(--primary-blue); border: 1px solid rgba(59,130,246,0.4); }
+        .log-tag.sys { background: rgba(16, 185, 129, 0.2); color: var(--primary-emerald); border: 1px solid rgba(16,185,129,0.4); }
+
+        /* Right Side: Tab Controls & Status Panel */
+        .right-panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(15px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .panel-summary-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .summary-card {
+            background: rgba(16, 24, 48, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px 8px;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .summary-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary-blue);
+        }
+
+        .summary-card.emergencies::before { background: var(--primary-rose); }
+        .summary-card.congestion::before { background: var(--primary-orange); }
+
+        .summary-card:hover {
+            background: rgba(16, 24, 48, 0.8);
+            transform: translateY(-2px);
+            border-color: rgba(59, 130, 246, 0.25);
+        }
+
+        .summary-card h4 {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .summary-card div {
+            font-family: var(--font-orbitron);
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .summary-card.emergencies div { color: var(--primary-rose); text-shadow: 0 0 10px rgba(239, 68, 68, 0.25); }
+        .summary-card.congestion div { color: var(--primary-orange); text-shadow: 0 0 10px rgba(245, 158, 11, 0.25); }
+
+        /* Panel Navigation Tabs */
+        .tabs-nav {
+            display: flex;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(6, 9, 18, 0.4);
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 15px 10px;
+            font-family: var(--font-orbitron);
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .tab-btn.active {
+            color: var(--primary-cyan);
+            border-bottom-color: var(--primary-cyan);
+            background: rgba(6, 182, 212, 0.05);
+            text-shadow: 0 0 8px rgba(6, 182, 212, 0.3);
+        }
+
+        .tab-content-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            position: relative;
+        }
+
+        .tab-pane {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Control Lock Overlay */
+        .controls-lock-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(7, 11, 19, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 30px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .controls-lock-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .lock-icon {
+            font-size: 3rem;
+            color: var(--primary-cyan);
+            text-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+            margin-bottom: 20px;
+            animation: pulse-glow 2s infinite alternate;
+        }
+
+        .lock-message h3 {
+            font-family: var(--font-orbitron);
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+
+        .lock-message p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            max-width: 280px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        /* Modal Dialogs */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(12px);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-box {
+            background: rgba(13, 20, 38, 0.95);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 10px 40px rgba(6, 182, 212, 0.15);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 400px;
+            padding: 30px;
+            animation: slide-up-modal 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slide-up-modal {
+            from { transform: translateY(30px) scale(0.95); }
+            to { transform: translateY(0) scale(1); }
+        }
+
+        .modal-title {
+            font-family: var(--font-orbitron);
+            font-size: 1.1rem;
+            color: var(--primary-cyan);
+            margin-bottom: 20px;
+            text-align: center;
+            letter-spacing: 1.5px;
+        }
+
+        /* Forms Styling */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .form-control {
+            width: 100%;
+            background: rgba(7, 11, 19, 0.8);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 6px;
+            padding: 10px 14px;
+            color: var(--text-main);
+            font-family: var(--font-inter);
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary-cyan);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.25);
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary-cyan), var(--primary-blue));
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: var(--font-orbitron);
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.2);
+            text-transform: uppercase;
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.4);
+            filter: brightness(1.1);
+        }
+
+        /* Junction Grid & Signals Override CSS */
+        .junction-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .junction-item {
+            background: rgba(16, 24, 48, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .junction-item:hover {
+            border-color: rgba(59, 130, 246, 0.2);
+            background: rgba(16, 24, 48, 0.6);
+        }
+
+        .junction-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .junction-name {
+            font-family: var(--font-orbitron);
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+
+        .light-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px currentColor;
+        }
+
+        .light-indicator.green { color: var(--primary-emerald); background-color: var(--primary-emerald); }
+        .light-indicator.yellow { color: var(--primary-orange); background-color: var(--primary-orange); }
+        .light-indicator.red { color: var(--primary-rose); background-color: var(--primary-rose); }
+
+        .junction-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 5px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            border-radius: 10px;
+        }
+
+        .override-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 5px;
+        }
+
+        .btn-override {
+            flex: 1;
+            padding: 6px;
+            font-size: 0.75rem;
+            font-family: var(--font-orbitron);
+            font-weight: 700;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            background: rgba(30, 41, 59, 0.5);
+            color: var(--text-muted);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .btn-override.active-green {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.4);
+            color: var(--primary-emerald);
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.25);
+        }
+
+        .btn-override.active-red {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.4);
+            color: var(--primary-rose);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.25);
+        }
+
+        .btn-override:hover {
+            border-color: var(--primary-cyan);
+            color: var(--text-main);
+        }
+
+        /* Charts Styling */
+        .chart-box {
+            background: rgba(16, 24, 48, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .chart-box h4 {
+            font-family: var(--font-orbitron);
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+            color: var(--primary-cyan);
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        /* Leaflet Popups Cyberpunk Style */
+        .leaflet-popup-content-wrapper {
+            background: rgba(13, 20, 38, 0.9) !important;
+            border: 1px solid rgba(59, 130, 246, 0.3) !important;
+            color: var(--text-main) !important;
+            backdrop-filter: blur(10px);
+            font-family: var(--font-inter) !important;
+            border-radius: 8px !important;
+        }
+
+        .leaflet-popup-tip {
+            background: rgba(13, 20, 38, 0.9) !important;
+            border-left: 1px solid rgba(59, 130, 246, 0.3) !important;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.3) !important;
+        }
+
+        .leaflet-popup-content {
+            margin: 12px 16px !important;
+            line-height: 1.5;
+        }
+
+        .leaflet-popup-content h4 {
+            font-family: var(--font-orbitron);
+            margin-bottom: 6px;
+            color: var(--primary-cyan);
+        }
+
+        .leaflet-popup-content hr {
+            border: 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin: 6px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Panel -->
+    <header>
+        <div class="header-title-container">
+            <div class="logo-pulse"></div>
+            <h1>CITY SIGNAL CONTROL CENTER</h1>
+        </div>
+        <div class="system-status">
+            <!-- Auth Badge -->
+            <div class="auth-container" id="authContainer">
+                <button class="btn-auth" onclick="openLoginModal()">OPERATOR LOG IN</button>
+            </div>
+            <button id="audioTestBtn" class="btn-console" style="border-radius: 20px; padding: 6px 14px;">🔊 MUTE ALERTS</button>
+            <div id="connStatus" class="badge-live connecting">
+                <span class="live-dot pulsing-dot"></span>
+                <span id="connStatusText">ESTABLISHING WEBSOCKET...</span>
+            </div>
+            <div id="clock">00:00:00</div>
+        </div>
+    </header>
+
+    <!-- Portal Grid -->
+    <div class="portal-grid">
+        <!-- Left Pane: Map and Realtime Terminal Feed -->
+        <div class="left-panel">
+            <div id="map"></div>
+            <div class="console-panel">
+                <div class="console-header">
+                    <h3>📟 REALTIME CORRIDOR & TELEMETRY FEEDS</h3>
+                    <div class="console-actions">
+                        <button class="btn-console" onclick="clearConsole()">CLEAR FEED</button>
+                        <button class="btn-console" onclick="triggerTestMessage()">TEST WEB FEED</button>
+                    </div>
+                </div>
+                <div id="consoleFeed" class="console-feed">
+                    <div class="log-line"><span class="log-time">[System Init]</span><span class="log-tag sys">SYS</span>Initializing smart traffic monitoring feeds...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Pane: Tabs control and Stats Summary -->
+        <div class="right-panel">
+            <!-- Summary Row -->
+            <div class="panel-summary-cards">
+                <div class="summary-card">
+                    <h4>Total Signals</h4>
+                    <div id="summarySignals">0</div>
+                </div>
+                <div class="summary-card emergencies">
+                    <h4>Emergencies</h4>
+                    <div id="summaryEmergencies">0</div>
+                </div>
+                <div class="summary-card congestion">
+                    <h4>High Congestion</h4>
+                    <div id="summaryCongestion">0</div>
+                </div>
+            </div>
+
+            <!-- Tab Headers -->
+            <div class="tabs-nav">
+                <button class="tab-btn active" onclick="switchTab('tabDispatch')">DISPATCH</button>
+                <button class="tab-btn" onclick="switchTab('tabJunctions')">JUNCTIONS</button>
+                <button class="tab-btn" onclick="switchTab('tabAnalytics')">ANALYTICS</button>
+            </div>
+
+            <!-- Tab Content (secured tabs carry the lock overlay if not authenticated) -->
+            <div class="tab-content-container">
+                
+                <!-- Security Lock Overlay -->
+                <div id="controlsLockOverlay" class="controls-lock-overlay">
+                    <div class="lock-icon">🔒</div>
+                    <div class="lock-message">
+                        <h3>OPERATOR PRIVILEGES RESTRICTED</h3>
+                        <p>You are viewing the grid in Read-Only guest mode. Authentication is required to override signals, dispatch emergency corridors, or add junctions.</p>
+                        <button class="btn-auth" onclick="openLoginModal()">LOG IN AS OPERATOR</button>
+                    </div>
+                </div>
+
+                <!-- Dispatch Tab -->
+                <div id="tabDispatch" class="tab-pane active">
+                    <h3 style="font-family:var(--font-orbitron); font-size: 0.9rem; margin-bottom: 15px; color: var(--primary-cyan); letter-spacing: 1px;">🚑 CORRIDOR PRIORITY INTERVENTION FORM</h3>
+                    
+                    <form id="dispatchForm" onsubmit="dispatchEmergency(event)">
+                        <div class="form-group">
+                            <label for="vehicleNumber">Emergency Vehicle Tag</label>
+                            <input type="text" id="vehicleNumber" class="form-control" placeholder="e.g. AMB-911" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="vehicleType">Intervention Category</label>
+                            <select id="vehicleType" class="form-control" required>
+                                <option value="Ambulance">Ambulance (Medical)</option>
+                                <option value="Fire Truck">Fire Engine (Disaster)</option>
+                                <option value="Police">Police Escort (Security)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="startLocation">Current Junction Location</label>
+                            <select id="startLocation" class="form-control" required>
+                                <!-- Populate dynamically -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="destination">Destination Hospital Facility</label>
+                            <select id="destination" class="form-control" required>
+                                <option value="Ruby Hall Clinic">Ruby Hall Clinic</option>
+                                <option value="Sassoon Hospital">Sassoon General Hospital</option>
+                                <option value="Jehangir Hospital">Jehangir Hospital</option>
+                                <option value="KEM Hospital">KEM Hospital</option>
+                                <option value="City Hospital">City Hospital</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="priority">Urgency Rank</label>
+                            <select id="priority" class="form-control" required>
+                                <option value="HIGH">HIGH (Activate Route Corridor)</option>
+                                <option value="MEDIUM">MEDIUM (Standard Priority)</option>
+                                <option value="LOW">LOW (Log Only)</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn-submit">DISPATCH CORRIDOR VEHICLE</button>
+                    </form>
+                </div>
+
+                <!-- Junctions Tab -->
+                <div id="tabJunctions" class="tab-pane">
+                    <h3 style="font-family:var(--font-orbitron); font-size: 0.9rem; margin-bottom: 15px; color: var(--primary-cyan); letter-spacing: 1px;">🚥 OVERRIDE TRAFFIC SIGNALS</h3>
+                    <div id="junctionsList" class="junction-list">
+                        <p style="color:var(--text-muted); text-align:center;">Loading junction data...</p>
+                    </div>
+                </div>
+
+                <!-- Analytics Tab (This is NOT locked, anyone can view charts) -->
+                <div id="tabAnalytics" class="tab-pane">
+                    <div class="chart-box">
+                        <h4>📈 Congestion Scores per Sector</h4>
+                        <div style="position: relative; height: 180px; width: 100%;">
+                            <canvas id="congestionChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-box">
+                        <h4>🚥 Traffic Volume Distribution</h4>
+                        <div style="position: relative; height: 180px; width: 100%;">
+                            <canvas id="signalsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal-overlay">
+        <div class="modal-box">
+            <h3 id="modalHeader" class="modal-title">OPERATOR AUTHENTICATION</h3>
+            <form id="authForm" onsubmit="submitAuthForm(event)">
+                <div class="form-group" id="nameGroup" style="display:none;">
+                    <label for="authName">Full Name</label>
+                    <input type="text" id="authName" class="form-control" placeholder="e.g. Sgt. Miller">
+                </div>
+                <div class="form-group">
+                    <label for="authEmail">Email Address</label>
+                    <input type="email" id="authEmail" class="form-control" placeholder="e.g. operator@citytraffic.gov" required>
+                </div>
+                <div class="form-group">
+                    <label for="authPassword">Access Password</label>
+                    <input type="password" id="authPassword" class="form-control" placeholder="••••••••" required>
+                </div>
+                <button type="submit" id="authSubmitBtn" class="btn-submit">LOG IN</button>
+                <div style="text-align:center; margin-top: 15px; font-size: 0.8rem;">
+                    <span id="authToggleMsg" style="color:var(--text-muted);">New Operator?</span>
+                    <a href="#" id="authToggleLink" onclick="toggleAuthMode(event)" style="color:var(--primary-cyan); text-decoration:none; font-weight:bold; margin-left: 5px;">Register Account</a>
+                </div>
+                <button type="button" class="btn-submit" onclick="closeLoginModal()" style="background:rgba(255,255,255,0.05); color:#fff; border:1px solid rgba(255,255,255,0.1); margin-top: 8px; box-shadow:none;">CLOSE</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Core System Maps
+        let map;
+        let signalMarkers = {};
+        let activeRoutePolylines = {};
+        let ambulanceMarkers = {};
+        let congestionCircles = [];
+        let isAudioMuted = false;
+        let isRegisterMode = false;
+        
+        // Chart JS handles
+        let congestionChartInstance = null;
+        let signalsChartInstance = null;
+
+        // Constants
+        const hospitalLocations = {
+            "Ruby Hall Clinic": [18.5362, 73.8767],
+            "Sassoon Hospital": [18.5284, 73.8747],
+            "Jehangir Hospital": [18.5322, 73.8788],
+            "KEM Hospital": [18.5015, 73.8630],
+            "City Hospital": [18.5165, 73.8785]
+        };
+
+        // Synthesize Beep Sound
+        function playChime(freq, duration, type) {
+            if (isAudioMuted) return;
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.type = type || 'sine';
+                oscillator.frequency.value = freq || 440;
+                
+                gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + duration);
+            } catch(e) {
+                console.error("Audio error: ", e);
+            }
+        }
+
+        // Initialize Audio Control
+        document.getElementById('audioTestBtn').addEventListener('click', function() {
+            isAudioMuted = !isAudioMuted;
+            this.innerText = isAudioMuted ? "🔇 UNMUTE ALERTS" : "🔊 MUTE ALERTS";
+            this.style.background = isAudioMuted ? "rgba(239, 68, 68, 0.2)" : "rgba(30, 41, 59, 0.4)";
+            this.style.color = isAudioMuted ? "var(--primary-rose)" : "var(--text-muted)";
+            playChime(600, 0.1, 'triangle');
+        });
+
+        // Auth Logic & Layout Guard
+        function checkAuthState() {
+            const token = localStorage.getItem('traffic_jwt');
+            const email = localStorage.getItem('traffic_email');
+            const authContainer = document.getElementById("authContainer");
+            const lockOverlay = document.getElementById("controlsLockOverlay");
+            const activeTab = document.querySelector('.tab-btn.active').innerText.toLowerCase();
+
+            if (token && email) {
+                // Logged in
+                authContainer.innerHTML = `
+                    <div class="operator-info">
+                        <span>Console Operator:</span>
+                        <span class="operator-email">${email}</span>
+                        <button class="btn-auth" style="background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.4); color:var(--primary-rose);" onclick="performLogout()">LOGOUT</button>
+                    </div>
+                `;
+                // Disable overlay locks
+                lockOverlay.classList.remove("active");
+            } else {
+                // Guest mode
+                authContainer.innerHTML = `
+                    <button class="btn-auth" onclick="openLoginModal()">OPERATOR LOG IN</button>
+                `;
+                // Enable overlay locks for secure tabs
+                if (activeTab === 'dispatch' || activeTab === 'junctions') {
+                    lockOverlay.classList.add("active");
+                } else {
+                    lockOverlay.classList.remove("active");
+                }
+            }
+        }
+
+        function openLoginModal() {
+            document.getElementById("loginModal").classList.add("active");
+            playChime(500, 0.15, 'sine');
+        }
+
+        function closeLoginModal() {
+            document.getElementById("loginModal").classList.remove("active");
+            // reset mode
+            isRegisterMode = false;
+            document.getElementById("nameGroup").style.display = "none";
+            document.getElementById("modalHeader").innerText = "OPERATOR AUTHENTICATION";
+            document.getElementById("authSubmitBtn").innerText = "LOG IN";
+            document.getElementById("authToggleMsg").innerText = "New Operator?";
+            document.getElementById("authToggleLink").innerText = "Register Account";
+            document.getElementById("authForm").reset();
+        }
+
+        function toggleAuthMode(e) {
+            e.preventDefault();
+            isRegisterMode = !isRegisterMode;
+            const nameGroup = document.getElementById("nameGroup");
+            const header = document.getElementById("modalHeader");
+            const submitBtn = document.getElementById("authSubmitBtn");
+            const msg = document.getElementById("authToggleMsg");
+            const link = document.getElementById("authToggleLink");
+
+            if (isRegisterMode) {
+                nameGroup.style.display = "block";
+                header.innerText = "OPERATOR REGISTRATION";
+                submitBtn.innerText = "REGISTER OPERATOR";
+                msg.innerText = "Already registered?";
+                link.innerText = "Access Account";
+            } else {
+                nameGroup.style.display = "none";
+                header.innerText = "OPERATOR AUTHENTICATION";
+                submitBtn.innerText = "LOG IN";
+                msg.innerText = "New Operator?";
+                link.innerText = "Register Account";
+            }
+            playChime(600, 0.1, 'sine');
+        }
+
+        async function submitAuthForm(e) {
+            e.preventDefault();
+            const email = document.getElementById("authEmail").value.trim();
+            const password = document.getElementById("authPassword").value.trim();
+            const name = document.getElementById("authName").value.trim();
+
+            if (isRegisterMode) {
+                // Register
+                try {
+                    const response = await fetch("/api/auth/register", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name, email, password })
+                    });
+                    const msg = await response.text();
+                    showNotificationToast(msg);
+                    if (msg.includes("Successfully")) {
+                        // Switch to login mode
+                        toggleAuthMode(e);
+                    }
+                } catch(err) {
+                    showNotificationToast("Registration request failed.");
+                }
+            } else {
+                // Login
+                try {
+                    const response = await fetch("/api/auth/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const token = await response.text();
+                    if (token && token.length > 50) { // Valid token check
+                        localStorage.setItem("traffic_jwt", token);
+                        localStorage.setItem("traffic_email", email);
+                        addLog(`Operator ${email} logged in. Console controls unlocked.`, "sys");
+                        closeLoginModal();
+                        checkAuthState();
+                        loadDashboardData();
+                    } else {
+                        showNotificationToast("Invalid credentials or login rejected: " + token);
+                        playChime(220, 0.3, 'sawtooth');
+                    }
+                } catch(err) {
+                    showNotificationToast("Authentication connection error.");
+                }
+            }
+        }
+
+        function performLogout() {
+            localStorage.removeItem("traffic_jwt");
+            localStorage.removeItem("traffic_email");
+            addLog("Operator logged out. Read-only guest mode enabled.", "sys");
+            checkAuthState();
+            loadDashboardData();
+            playChime(300, 0.2, 'sawtooth');
+        }
+
+        // Initialize Map
+        function initMap() {
+            map = L.map('map', {
+                zoomControl: true,
+                attributionControl: false
+            }).setView([18.5204, 73.8567], 13.5);
+
+            // Sleek Dark Map Tiles
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19
+            }).addTo(map);
+
+            // Click-to-add signal listener on Map
+            map.on('click', function(e) {
+                const token = localStorage.getItem('traffic_jwt');
+                if (!token) {
+                    showNotificationToast("Access Denied: Log in to register new junctions.");
+                    playChime(220, 0.2, 'sawtooth');
+                    return;
+                }
+
+                const lat = e.latlng.lat.toFixed(6);
+                const lng = e.latlng.lng.toFixed(6);
+
+                const popupContent = `
+                    <div style="width: 220px; font-family: var(--font-inter);">
+                        <h4 style="margin-bottom: 8px; font-family: var(--font-orbitron); color: var(--primary-cyan);">📍 Register New Junction</h4>
+                        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin-bottom: 8px;">
+                        <div style="margin-bottom: 8px;">
+                            <label style="font-size: 0.75rem; color: var(--text-muted); display:block; margin-bottom: 4px;">JUNCTION NAME</label>
+                            <input type="text" id="newJunctionName" style="width:100%; background:#070b13; border:1px solid rgba(59,130,246,0.3); border-radius:4px; padding:6px; color:#fff; font-size:0.8rem;" placeholder="e.g. Shivajinagar Circle">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label style="font-size: 0.75rem; color: var(--text-muted); display:block; margin-bottom: 4px;">INITIAL VEHICLES</label>
+                            <input type="number" id="newJunctionVehicles" style="width:100%; background:#070b13; border:1px solid rgba(59,130,246,0.3); border-radius:4px; padding:6px; color:#fff; font-size:0.8rem;" value="80">
+                        </div>
+                        <div style="display:flex; gap: 5px; margin-top:10px;">
+                            <button onclick="submitNewJunction(${lat}, ${lng})" style="flex:1; background:linear-gradient(135deg, var(--primary-cyan), var(--primary-blue)); border:none; color:white; padding:6px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">CREATE</button>
+                            <button onclick="map.closePopup()" style="background:rgba(255,255,255,0.1); border:none; color:#fff; padding:6px; border-radius:4px; font-size:0.75rem; cursor:pointer;">CANCEL</button>
+                        </div>
+                    </div>
+                `;
+
+                L.popup()
+                    .setLatLng(e.latlng)
+                    .setContent(popupContent)
+                    .openOn(map);
+            });
+        }
+
+        // POST dynamic click-to-add junction signal
+        async function submitNewJunction(lat, lng) {
+            const name = document.getElementById("newJunctionName").value.trim();
+            const vehicles = parseInt(document.getElementById("newJunctionVehicles").value) || 50;
+            const token = localStorage.getItem('traffic_jwt');
+
+            if (!name) {
+                showNotificationToast("Please specify a junction name.");
+                return;
+            }
+
+            const payload = {
+                junctionName: name + " Junction",
+                status: "GREEN",
+                vehicleCount: vehicles,
+                congestionLevel: vehicles * 0.4,
+                latitude: parseFloat(lat),
+                longitude: parseFloat(lng)
+            };
+
+            try {
+                const response = await fetch("/api/signals", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    addLog(`Junction '${name}' successfully registered at (${lat}, ${lng}).`, "sys");
+                    map.closePopup();
+                } else {
+                    const txt = await response.text();
+                    addLog("Override Rejected: " + txt, "alert");
+                }
+            } catch (err) {
+                addLog("Junction save network error.", "alert");
+            }
+        }
+
+        // Clock display
+        setInterval(() => {
+            document.getElementById("clock").innerText = new Date().toLocaleTimeString();
+        }, 1000);
+
+        // Switch panel tabs
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+            
+            // Activate button
+            const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(btn => btn.innerText.toLowerCase() === tabId.replace('tab', '').toLowerCase());
+            if (activeBtn) activeBtn.classList.add('active');
+            
+            // Activate content
+            document.getElementById(tabId).classList.add('active');
+
+            // Toggle lock overlay
+            checkAuthState();
+
+            // Render charts if active
+            if (tabId === 'tabAnalytics') {
+                renderAnalyticsCharts();
+            }
+        }
+
+        // Console Log Management
+        function addLog(message, category) {
+            const consoleFeed = document.getElementById("consoleFeed");
+            const dateStr = new Date().toLocaleTimeString();
+            
+            let tagClass = "info";
+            if (category === "alert" || message.includes("🚑") || message.includes("Emergency")) tagClass = "alert";
+            else if (category === "sys") tagClass = "sys";
+
+            const logElement = document.createElement("div");
+            logElement.className = "log-line";
+            logElement.innerHTML = `<span class="log-time">[${dateStr}]</span><span class="log-tag ${tagClass}">${category}</span> <span class="log-line-content">${message}</span>`;
+            
+            consoleFeed.appendChild(logElement);
+            consoleFeed.scrollTop = consoleFeed.scrollHeight;
+
+            // Trigger notification beep
+            if (tagClass === "alert") {
+                playChime(880, 0.4, 'sine');
+                setTimeout(() => playChime(660, 0.3, 'sine'), 150);
+            } else {
+                playChime(440, 0.05, 'triangle');
+            }
+        }
+
+        function clearConsole() {
+            document.getElementById("consoleFeed").innerHTML = "";
+            addLog("Telemetry feed cleared.", "sys");
+        }
+
+        // WebSocket Connection using SockJS / STOMP
+        let stompClient = null;
+
+        function connectWebSocket() {
+            const socket = new SockJS('/traffic-websocket');
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null; // Disable debug prints
+
+            stompClient.connect({}, 
+                function(frame) {
+                    const statusDiv = document.getElementById("connStatus");
+                    statusDiv.className = "badge-live";
+                    document.getElementById("connStatusText").innerText = "MONITOR ACTIVE";
+                    addLog("STOMP WebSocket channel connected successfully.", "sys");
+                    
+                    stompClient.subscribe("/topic/traffic", function(message) {
+                        const payload = message.body;
+                        if (payload === "refresh") {
+                            loadDashboardData();
+                        } else {
+                            addLog(payload, "alert");
+                        }
+                    });
+
+                    // Initial Load
+                    loadDashboardData();
+                }, 
+                function(error) {
+                    const statusDiv = document.getElementById("connStatus");
+                    statusDiv.className = "badge-live disconnected";
+                    document.getElementById("connStatusText").innerText = "RECONNECTING FEED...";
+                    addLog("Feed disconnect detected. Reconnecting in 5s...", "alert");
+                    setTimeout(connectWebSocket, 5000);
+                }
+            );
+        }
+
+        // Fetch Dashboard Data
+        async function loadDashboardData() {
+            try {
+                const [signalsResponse, congestionResponse, emergencyResponse] = await Promise.all([
+                    fetch("/api/signals"),
+                    fetch("/api/congestion"),
+                    fetch("/api/emergency")
+                ]);
+
+                const signals = await signalsResponse.json();
+                const congestion = await congestionResponse.json();
+                const emergency = await emergencyResponse.json();
+
+                updateMetricsSummary(signals, congestion, emergency);
+                updateSignalsMap(signals);
+                updateCongestionOverlay(congestion);
+                updateEmergencyRoutes(emergency);
+                populateStartLocations(signals);
+                updateJunctionList(signals);
+                
+                // Redraw charts if analytics page is currently shown
+                if (document.getElementById("tabAnalytics").classList.contains("active")) {
+                    renderAnalyticsCharts(signals, congestion);
+                }
+            } catch (err) {
+                console.error("Error loading dashboard data: ", err);
+            }
+        }
+
+        // Update Summaries Row
+        function updateMetricsSummary(signals, congestion, emergency) {
+            document.getElementById("summarySignals").innerText = signals.length;
+            
+            const activeEmergencies = emergency.filter(v => v.routeCleared).length;
+            document.getElementById("summaryEmergencies").innerText = activeEmergencies;
+
+            const highCongestionCount = congestion.filter(c => c.congestionLevel === "HIGH").length;
+            document.getElementById("summaryCongestion").innerText = highCongestionCount;
+        }
+
+        // Populate Form Location dropdown
+        function populateStartLocations(signals) {
+            const dropdown = document.getElementById("startLocation");
+            // If already filled, don't overwrite user selection unless options size changed
+            if (dropdown.options.length === signals.length) return;
+
+            dropdown.innerHTML = "";
+            // Sort alphabetical
+            const sortedSignals = [...signals].sort((a,b) => a.junctionName.localeCompare(b.junctionName));
+            sortedSignals.forEach(signal => {
+                // Parse standard name
+                const shortName = signal.junctionName.replace(" Junction", "").replace(" Signal", "");
+                const opt = document.createElement("option");
+                opt.value = shortName;
+                opt.innerText = signal.junctionName;
+                dropdown.appendChild(opt);
+            });
+        }
+
+        // Update Signal Markers on Map
+        function updateSignalsMap(signals) {
+            signals.forEach(signal => {
+                const lat = signal.latitude;
+                const lng = signal.longitude;
+                if (!lat || !lng) return;
+
+                const color = signal.status === "GREEN" ? "var(--primary-emerald)" :
+                              signal.status === "YELLOW" ? "var(--primary-orange)" : "var(--primary-rose)";
+
+                const popupHtml = `
+                    <div style="width: 200px;">
+                        <h4>🚥 ${signal.junctionName}</h4>
+                        <hr>
+                        <b>Status:</b> <span style="color:${color}; font-weight:700;">${signal.status}</span><br>
+                        <b>Queue Count:</b> ${signal.vehicleCount} cars<br>
+                        <b>Congestion:</b> ${signal.congestionLevel.toFixed(1)}%<br>
+                        <hr>
+                        <div style="display:flex; gap: 5px; margin-top:8px;">
+                            <button onclick="overrideSignalStatus(${signal.id}, 'GREEN')" style="background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.5); color:#10b981; padding:3px 6px; border-radius:3px; font-size:10px; font-weight:bold; cursor:pointer;">GREEN</button>
+                            <button onclick="overrideSignalStatus(${signal.id}, 'RED')" style="background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.5); color:#ef4444; padding:3px 6px; border-radius:3px; font-size:10px; font-weight:bold; cursor:pointer;">RED</button>
+                            ${signal.manualOverride ? `<button onclick="overrideSignalStatus(${signal.id}, 'RELEASE')" style="background:rgba(6,182,212,0.2); border:1px solid rgba(6,182,212,0.5); color:var(--primary-cyan); padding:3px 6px; border-radius:3px; font-size:10px; font-weight:bold; cursor:pointer;">RELEASE</button>` : ''}
+                        </div>
+                    </div>
+                `;
+
+                if (signalMarkers[signal.id]) {
+                    // Update existing
+                    signalMarkers[signal.id].setLatLng([lat, lng]);
+                    signalMarkers[signal.id].setStyle({
+                        color: color,
+                        fillColor: color
+                    });
+                    signalMarkers[signal.id].getPopup().setContent(popupHtml);
+                } else {
+                    // Create new Marker
+                    const marker = L.circleMarker([lat, lng], {
+                        radius: 8,
+                        weight: 2,
+                        opacity: 1,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.8
+                    }).addTo(map);
+
+                    marker.bindPopup(popupHtml);
+                    signalMarkers[signal.id] = marker;
+                }
+            });
+        }
+
+        // Update Congestion Halos
+        function updateCongestionOverlay(congestion) {
+            // Remove previous congestion circles
+            congestionCircles.forEach(c => map.removeLayer(c));
+            congestionCircles = [];
+
+            congestion.forEach(zone => {
+                // Find matching signal coordinates to draw circle
+                const matchingSignal = Object.values(signalMarkers).find(m => {
+                    const popupText = m.getPopup().getContent();
+                    return popupText.includes(zone.location);
+                });
+
+                if (matchingSignal) {
+                    const latLng = matchingSignal.getLatLng();
+                    let color = "rgba(16, 185, 129, 0.4)";
+                    let fill = "rgba(16, 185, 129, 0.1)";
+                    if (zone.congestionLevel === "HIGH") {
+                        color = "rgba(239, 68, 68, 0.5)";
+                        fill = "rgba(239, 68, 68, 0.15)";
+                    } else if (zone.congestionLevel === "MEDIUM") {
+                        color = "rgba(245, 158, 11, 0.5)";
+                        fill = "rgba(245, 158, 11, 0.12)";
+                    }
+
+                    const c = L.circle(latLng, {
+                        radius: Math.max(100, zone.congestionScore * 5),
+                        color: color,
+                        fillColor: fill,
+                        weight: 1.5,
+                        dashArray: zone.congestionLevel === "HIGH" ? "4,4" : null
+                    }).addTo(map);
+
+                    c.bindPopup(`
+                        <div style="width: 150px;">
+                            <h4>📈 Congestion Overlay</h4>
+                            <b>Sector:</b> ${zone.location}<br>
+                            <b>Vehicles:</b> ${zone.vehicleCount}<br>
+                            <b>Intensity Score:</b> ${zone.congestionScore.toFixed(1)}/100
+                        </div>
+                    `);
+
+                    congestionCircles.push(c);
+                }
+            });
+        }
+
+        // Draw Active Emergency Route paths & animated markers
+        function updateEmergencyRoutes(emergency) {
+            const activeVehicles = emergency.filter(v => v.routeCleared);
+
+            // Clean finished vehicles from map
+            Object.keys(ambulanceMarkers).forEach(vNum => {
+                if (!activeVehicles.find(v => v.vehicleNumber === vNum)) {
+                    map.removeLayer(ambulanceMarkers[vNum].marker);
+                    if (ambulanceMarkers[vNum].pulseCircle) map.removeLayer(ambulanceMarkers[vNum].pulseCircle);
+                    if (activeRoutePolylines[vNum]) map.removeLayer(activeRoutePolylines[vNum]);
+                    delete ambulanceMarkers[vNum];
+                    delete activeRoutePolylines[vNum];
+                }
+            });
+
+            activeVehicles.forEach(vehicle => {
+                const lat = vehicle.latitude;
+                const lng = vehicle.longitude;
+                if (!lat || !lng) return;
+
+                const destCoords = hospitalLocations[vehicle.destination];
+                if (!destCoords) return;
+
+                // Draw/Update Route Corridor line
+                const routeLinePoints = [[lat, lng], destCoords];
+                
+                if (activeRoutePolylines[vehicle.vehicleNumber]) {
+                    activeRoutePolylines[vehicle.vehicleNumber].setLatLngs(routeLinePoints);
+                } else {
+                    const routeLine = L.polyline(routeLinePoints, {
+                        color: "var(--primary-rose)",
+                        weight: 4,
+                        opacity: 0.8,
+                        dashArray: "8, 8"
+                    }).addTo(map);
+
+                    routeLine.bindPopup(`
+                        <b>Emergency Dispatch Corridor</b><br>
+                        Vehicle: ${vehicle.vehicleNumber}<br>
+                        Destination: ${vehicle.destination}
+                    `);
+                    activeRoutePolylines[vehicle.vehicleNumber] = routeLine;
+                }
+
+                // Custom icons for Ambulance marker
+                const ambulanceIcon = L.divIcon({
+                    html: `<div style="font-size: 24px; text-shadow: 0 0 10px rgba(239, 68, 68, 0.7); transform: translate(-8px, -12px); animation: pulse-ring 1s infinite alternate;">🚑</div>`,
+                    className: 'custom-ambulance-div'
+                });
+
+                const popupContent = `
+                    <div style="width: 220px;">
+                        <h4>🚨 Active Corridor Telemetry</h4>
+                        <hr>
+                        <b>Vehicle:</b> ${vehicle.vehicleNumber} (${vehicle.type})<br>
+                        <b>Status:</b> ${vehicle.location}<br>
+                        <b>Hospital Target:</b> ${vehicle.destination}<br>
+                        <b>Priority Mode:</b> ${vehicle.priority}
+                    </div>
+                `;
+
+                if (ambulanceMarkers[vehicle.vehicleNumber]) {
+                    ambulanceMarkers[vehicle.vehicleNumber].marker.setLatLng([lat, lng]);
+                    ambulanceMarkers[vehicle.vehicleNumber].marker.getPopup().setContent(popupContent);
+                    if (ambulanceMarkers[vehicle.vehicleNumber].pulseCircle) {
+                        ambulanceMarkers[vehicle.vehicleNumber].pulseCircle.setLatLng([lat, lng]);
+                    }
+                } else {
+                    const m = L.marker([lat, lng], {icon: ambulanceIcon}).addTo(map);
+                    m.bindPopup(popupContent);
+
+                    // Add priority signal pulse radius indicator
+                    const pCircle = L.circle([lat, lng], {
+                        radius: 800,
+                        color: "rgba(239, 68, 68, 0.35)",
+                        fillColor: "rgba(239, 68, 68, 0.05)",
+                        weight: 1
+                    }).addTo(map);
+
+                    ambulanceMarkers[vehicle.vehicleNumber] = {
+                        marker: m,
+                        pulseCircle: pCircle
+                    };
+                    
+                    map.panTo([lat, lng]);
+                }
+            });
+        }
+
+        // Render Right Side Control Lists
+        function updateJunctionList(signals) {
+            const listContainer = document.getElementById("junctionsList");
+            listContainer.innerHTML = "";
+
+            signals.forEach(signal => {
+                const indicatorClass = signal.status === "GREEN" ? "green" :
+                                     signal.status === "YELLOW" ? "yellow" : "red";
+
+                const isGreenActive = signal.status === "GREEN" ? "active-green" : "";
+                const isRedActive = signal.status === "RED" ? "active-red" : "";
+
+                const card = document.createElement("div");
+                card.className = "junction-item";
+                card.innerHTML = `
+                    <div class="junction-info">
+                        <span class="junction-name">${signal.junctionName}</span>
+                        <div>
+                            ${signal.manualOverride ? `<span style="font-size: 0.65rem; background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.3); color: var(--primary-cyan); padding: 1px 4px; border-radius: 4px; margin-right: 6px; font-family: var(--font-orbitron);">MANUAL</span>` : ''}
+                            <span class="light-indicator ${indicatorClass}"></span>
+                        </div>
+                    </div>
+                    <div class="junction-stats">
+                        <span>Vehicles: <b>${signal.vehicleCount}</b></span>
+                        <span>Congestion: <b>${signal.congestionLevel.toFixed(1)}%</b></span>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: ${signal.congestionLevel}%; background-color: ${signal.congestionLevel > 75 ? 'var(--primary-rose)' : signal.congestionLevel > 50 ? 'var(--primary-orange)' : 'var(--primary-emerald)'};"></div>
+                    </div>
+                    <div class="override-controls">
+                        <button class="btn-override ${isGreenActive}" onclick="overrideSignalStatus(${signal.id}, 'GREEN')">FORCE GREEN</button>
+                        <button class="btn-override ${isRedActive}" onclick="overrideSignalStatus(${signal.id}, 'RED')">FORCE RED</button>
+                        ${signal.manualOverride ? `<button class="btn-override" style="border-color: var(--primary-cyan); color: var(--primary-cyan);" onclick="overrideSignalStatus(${signal.id}, 'RELEASE')">RELEASE</button>` : ''}
+                    </div>
+                `;
+
+                listContainer.appendChild(card);
+            });
+        }
+
+        // Trigger manual override Status
+        async function overrideSignalStatus(id, newStatus) {
+            const token = localStorage.getItem('traffic_jwt');
+            if (!token) {
+                showNotificationToast("Access Denied: Log in to override signal status.");
+                playChime(220, 0.2, 'sawtooth');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/signals/${id}/status?status=${newStatus}`, {
+                    method: 'PUT',
+                    headers: {
+                        "Authorization": `Bearer ${token}`
+                    }
+                });
+                
+                if (response.ok) {
+                    addLog(`Manual status override issued: Signal #${id} -> ${newStatus}`, "sys");
+                } else {
+                    addLog("Override request rejected: Unauthorized payload.", "alert");
+                }
+            } catch (err) {
+                console.error("API error during override: ", err);
+            }
+        }
+
+        // Submit Emergency Dispatch
+        async function dispatchEmergency(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('traffic_jwt');
+            if (!token) {
+                showNotificationToast("Access Denied: Log in to dispatch emergency corridors.");
+                playChime(220, 0.2, 'sawtooth');
+                return;
+            }
+            
+            const number = document.getElementById("vehicleNumber").value.trim();
+            const type = document.getElementById("vehicleType").value;
+            const location = document.getElementById("startLocation").value;
+            const destination = document.getElementById("destination").value;
+            const priority = document.getElementById("priority").value;
+
+            const payload = {
+                vehicleNumber: number,
+                type: type,
+                location: location,
+                destination: destination,
+                priority: priority,
+                routeCleared: false
+            };
+
+            try {
+                const response = await fetch("/api/emergency", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    addLog(`Emergency Corridor dispatch approved for ${number} (${type})!`, "sys");
+                    document.getElementById("dispatchForm").reset();
+                } else {
+                    addLog("Intervention request denied by route manager.", "alert");
+                }
+            } catch (err) {
+                console.error("Dispatch Error: ", err);
+                addLog("Network connection error: Failed to dispatch.", "alert");
+            }
+        }
+
+        // Render Analytics Charts
+        async function renderAnalyticsCharts(signalsData, congestionData) {
+            if (!signalsData || !congestionData) {
+                try {
+                    const [sigRes, congRes] = await Promise.all([fetch("/api/signals"), fetch("/api/congestion")]);
+                    signalsData = await sigRes.json();
+                    congestionData = await congRes.json();
+                } catch(e) {
+                    console.error("Charts fetch error: ", e);
+                    return;
+                }
+            }
+
+            const sortedCongestion = [...congestionData]
+                .sort((a,b) => b.congestionScore - a.congestionScore)
+                .slice(0, 5);
+
+            const labels1 = sortedCongestion.map(c => c.location);
+            const data1 = sortedCongestion.map(c => c.congestionScore);
+
+            if (congestionChartInstance) {
+                congestionChartInstance.data.labels = labels1;
+                congestionChartInstance.data.datasets[0].data = data1;
+                congestionChartInstance.update();
+            } else {
+                const ctx1 = document.getElementById('congestionChart').getContext('2d');
+                congestionChartInstance = new Chart(ctx1, {
+                    type: 'bar',
+                    data: {
+                        labels: labels1,
+                        datasets: [{
+                            label: 'Congestion Score',
+                            data: data1,
+                            backgroundColor: 'rgba(6, 182, 212, 0.4)',
+                            borderColor: 'rgba(6, 182, 212, 1)',
+                            borderWidth: 1.5,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#64748b', font: { family: 'Share Tech Mono' } }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#64748b', font: { size: 9 } }
+                            }
+                        }
+                    }
+                });
+            }
+
+            let highCount = 0, medCount = 0, lowCount = 0;
+            signalsData.forEach(sig => {
+                if (sig.congestionLevel > 75) highCount++;
+                else if (sig.congestionLevel > 40) medCount++;
+                else lowCount++;
+            });
+
+            if (signalsChartInstance) {
+                signalsChartInstance.data.datasets[0].data = [highCount, medCount, lowCount];
+                signalsChartInstance.update();
+            } else {
+                const ctx2 = document.getElementById('signalsChart').getContext('2d');
+                signalsChartInstance = new Chart(ctx2, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['HIGH congestion', 'MODERATE congestion', 'FLOWING traffic'],
+                        datasets: [{
+                            data: [highCount, medCount, lowCount],
+                            backgroundColor: [
+                                'rgba(239, 68, 68, 0.5)',
+                                'rgba(245, 158, 11, 0.5)',
+                                'rgba(16, 185, 129, 0.5)'
+                            ],
+                            borderColor: [
+                                'rgba(239, 68, 68, 1)',
+                                'rgba(245, 158, 11, 1)',
+                                'rgba(16, 185, 129, 1)'
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    color: '#64748b',
+                                    font: { size: 9, family: 'Inter' }
+                                }
+                            }
+                        },
+                        cutout: '60%'
+                    }
+                });
+            }
+        }
+
+        // Toast alert helper
+        function showNotificationToast(msg) {
+            const toast = document.createElement("div");
+            toast.innerText = msg;
+            toast.style.position = "fixed";
+            toast.style.bottom = "20px";
+            toast.style.right = "20px";
+            toast.style.background = "rgba(13, 20, 38, 0.95)";
+            toast.style.color = "var(--primary-cyan)";
+            toast.style.border = "1px solid var(--primary-cyan)";
+            toast.style.boxShadow = "0 0 15px rgba(6, 182, 212, 0.3)";
+            toast.style.padding = "12px 20px";
+            toast.style.borderRadius = "6px";
+            toast.style.zIndex = "99999";
+            toast.style.fontWeight = "bold";
+            toast.style.fontFamily = "var(--font-orbitron)";
+            toast.style.fontSize = "0.75rem";
+
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // Test telemetry message
+        function triggerTestMessage() {
+            addLog("Inter-process Webhook Test Broadcast successful. System integrity functional.", "sys");
+        }
+
+        // Run On Load
+        window.onload = function() {
+            initMap();
+            checkAuthState();
+            connectWebSocket();
+        };
+    </script>
+</body>
+</html>

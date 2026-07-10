@@ -1,0 +1,6 @@
+#FileLock
+#Fri Jul 10 13:45:24 IST 2026
+hostName=Windows.Vortex.local
+id=19f4b187c1e370a9a9b4849e6717c1d54bcd90dce84
+method=file
+server=192.168.1.4\:51454
