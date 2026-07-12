@@ -39,7 +39,7 @@ An AI-powered Smart Traffic Management System that enables real-time monitoring 
 - Chart.js
 
 ### Database
-- H2 Database
+- Data.sql
 
 ### Tools
 - Git
