@@ -33,13 +33,23 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/signals/**", "/api/congestion/**", "/api/emergency/**").permitAll()
                         .requestMatchers(
-                                "/api/auth/**",
-                                "/h2-console/**",
-                                "/dashboard.html",
-                                "/map.html",
-                                "/traffic-websocket/**",
-                                "/api/notify/**"
-                        ).permitAll()
+        "/",
+        "/index.html",
+        "/dashboard.html",
+        "/map.html",
+        "/favicon.ico",
+        "/error",
+        "/css/**",
+        "/js/**",
+        "/images/**",
+        "/api/auth/**",
+        "/api/signals/**",
+        "/api/congestion/**",
+        "/api/emergency/**",
+        "/traffic-websocket/**",
+        "/api/notify/**",
+        "/h2-console/**"
+).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/signals/**").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/signals/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/emergency/**").authenticated()
